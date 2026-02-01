@@ -36,7 +36,7 @@ Switch patterns, styles, or shapes.
 
 		
 Usage	`mode <name>`	
-Aliases	`m`, `pattern`, `style`, `type`, `shape`, `p`	
+Aliases	`m`, `pattern`, `style`, `type`, `shape`
 
 ---
 
@@ -74,7 +74,7 @@ Store the equipped tool.
 
 		
 Usage	`unequiptool`	
-Aliases	`unet`, `store`, `u`, `hide`, `unequiptool`	
+Aliases	`unet`, `store`, `hide`, `unequiptool`	
 
 ---
 
