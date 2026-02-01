@@ -28,7 +28,7 @@ local lerpSpeed = 1
 
 local targetHRP = hrp
 local tweenEnabled = false
-local tweenDelay = 0
+local tweenDelay = 0.5
 local lastTargetChange = os.clock()
 
 local addedQueue = 0
