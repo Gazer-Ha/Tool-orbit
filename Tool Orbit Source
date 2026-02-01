@@ -1,0 +1,549 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+if getgenv().OrbitToolsy == true then 
+    return 
+end
+getgenv().OrbitToolsy = true
+
+local plr = Players.LocalPlayer
+local chr = plr.Character 
+local hrp = chr:WaitForChild("HumanoidRootPart")
+local bp = plr:WaitForChild("Backpack")
+
+local handles = {}
+local orbitParts = {}
+local movers = {}
+local connections = {}
+local toolNames = {}
+local offset = 8
+local speed = 1
+local mode = 1
+local rot = 0
+local toolRotSpeed = 1
+local lerpSpeed = 1
+
+local targetHRP = hrp
+local tweenEnabled = false
+local tweenDelay = 0
+local lastTargetChange = os.clock()
+
+local addedQueue = 0
+local removedQueue = 0
+local batchTimerActive = false
+
+local notifGui = Instance.new("ScreenGui")
+notifGui.Name = "FlatNotifGui"
+notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() notifGui.Parent = CoreGui end)
+if not notifGui.Parent then notifGui.Parent = plr:WaitForChild("PlayerGui") end
+
+local notifContainer = Instance.new("Frame", notifGui)
+notifContainer.Size = UDim2.new(0, 260, 1, -20)
+notifContainer.Position = UDim2.new(1, -270, 0, 10)
+notifContainer.BackgroundTransparency = 1
+
+local uiList = Instance.new("UIListLayout", notifContainer)
+uiList.VerticalAlignment = Enum.VerticalAlignment.Bottom
+uiList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+uiList.Padding = UDim.new(0, 8)
+
+local function sendFlatNotification(title, text, color)
+    local nFrame = Instance.new("Frame", notifContainer)
+    nFrame.Size = UDim2.new(0, 0, 0, 55)
+    nFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    nFrame.BorderSizePixel = 0
+    nFrame.ClipsDescendants = true
+
+    local accent = Instance.new("Frame", nFrame)
+    accent.Size = UDim2.new(0, 3, 1, 0)
+    accent.BackgroundColor3 = color or Color3.fromRGB(200, 200, 200)
+    accent.BorderSizePixel = 0
+
+    local tLabel = Instance.new("TextLabel", nFrame)
+    tLabel.Text = title:upper()
+    tLabel.Position = UDim2.new(0, 12, 0.15, 0)
+    tLabel.Size = UDim2.new(1, -20, 0, 15)
+    tLabel.Font = Enum.Font.GothamBold
+    tLabel.TextColor3 = color or Color3.new(1, 1, 1)
+    tLabel.TextSize = 13
+    tLabel.BackgroundTransparency = 1
+    tLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local mLabel = Instance.new("TextLabel", nFrame)
+    mLabel.Text = text
+    mLabel.Position = UDim2.new(0, 12, 0.5, 0)
+    mLabel.Size = UDim2.new(1, -20, 0, 15)
+    mLabel.Font = Enum.Font.Gotham
+    mLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+    mLabel.TextSize = 11
+    mLabel.BackgroundTransparency = 1
+    mLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    TweenService:Create(nFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 55)}):Play()
+
+    task.delay(1.4, function()
+        local t = TweenService:Create(nFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 55)})
+        t:Play()
+        t.Completed:Wait()
+        nFrame:Destroy()
+    end)
+end
+
+local function processBatchNotifications()
+    if batchTimerActive then return end
+    batchTimerActive = true
+    task.wait(0.1)
+    if addedQueue > 0 then
+        local msg = addedQueue >= 2 and "Mass added: " .. addedQueue .. " tools" or "Tool added to orbit"
+        sendFlatNotification("Orbit Added", msg, Color3.fromRGB(0, 255, 150))
+        addedQueue = 0
+    end
+    if removedQueue > 0 then
+        local msg = removedQueue >= 2 and "Mass removed: " .. removedQueue .. " tools" or "Tool removed from orbit"
+        sendFlatNotification("Orbit Removed", msg, Color3.fromRGB(255, 80, 80))
+        removedQueue = 0
+    end
+    batchTimerActive = false
+end
+
+local function processCommandString(input)
+    local args = input:split(" ")
+    if #args == 0 then return end
+    
+    local cmd = args[1]:lower()
+    local val = args[2]
+    local secondary = args[3]
+
+    local commands = {
+        offset = {"dist", "distance", "range", "radius", "gap", "far", "o"},
+        speed = {"s", "ospeed", "orbitspeed", "spd"},
+        rot = {"rs", "rotspeed", "spin", "spinspd", "spinspeed", "r"},
+        mode = {"m", "pattern", "style", "type", "shape", "p"},
+        target = {"orbit", "t", "lock", "goto", "track", "player", "p", "watch"},
+        unorbit = {"untarget", "unt", "me", "self", "reset", "u", "home", "back"},
+        equip = {"e", "get", "grab", "hold", "equiptool"},
+        unequip = {"unet", "store", "u", "hide", "unequiptool"},
+        stop = {"exit", "off", "close", "quit", "end", "kill", "die"},
+        lerp = {"smooth", "smoothness", "weight", "transition", "l"}
+    }
+
+    local function getMainCmd(alias)
+        if commands[alias] then return alias end
+        for main, aliases in pairs(commands) do
+            if table.find(aliases, alias) then return main end
+        end
+        return nil
+    end
+
+    local action = getMainCmd(cmd)
+    if not action then return end
+
+    if action == "offset" then
+        offset = tonumber(val) or offset
+        sendFlatNotification("Settings", "Distance: " .. offset, Color3.fromRGB(0, 180, 255))
+    
+    elseif action == "speed" then
+        speed = tonumber(val) or speed
+        sendFlatNotification("Settings", "Orbit Speed: " .. speed, Color3.fromRGB(0, 180, 255))
+    
+    elseif action == "rot" then
+        toolRotSpeed = tonumber(val) or toolRotSpeed
+        sendFlatNotification("Settings", "Tool Spin: " .. toolRotSpeed, Color3.fromRGB(0, 180, 255))
+
+    elseif action == "mode" then
+        mode = tonumber(val) or mode
+        sendFlatNotification("Settings", "Pattern Mode: " .. mode, Color3.fromRGB(0, 180, 255))
+
+    elseif action == "target" then
+        if not val then return end
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Name:lower():find(val:lower(), 1, true) or (p.DisplayName and p.DisplayName:lower():find(val:lower(), 1, true)) then
+                targetHRP = p.Character and p.Character:FindFirstChild("HumanoidRootPart") or targetHRP
+                lastTargetChange = os.clock()
+                tweenEnabled = false
+                sendFlatNotification("Targeting", "Locked: " .. p.DisplayName, Color3.fromRGB(255, 200, 0))
+                break
+            end
+        end
+
+    elseif action == "unorbit" then
+        targetHRP = hrp
+        sendFlatNotification("Targeting", "Returned to self", Color3.fromRGB(255, 255, 255))
+
+    elseif action == "equip" then
+        for _, tool in ipairs(plr.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then tool.Parent = chr end
+        end
+        sendFlatNotification("Command", "Equipped All", Color3.fromRGB(200, 255, 200))
+
+    elseif action == "unequip" then
+        for _, tool in ipairs(chr:GetChildren()) do
+            if tool:IsA("Tool") then tool.Parent = plr.Backpack end
+        end
+        sendFlatNotification("Command", "Unequipped All", Color3.fromRGB(255, 200, 200))
+
+    elseif action == "lerp" then
+        lerpSpeed = tonumber(val) or lerpSpeed
+        sendFlatNotification("Settings", "tween speed: " .. lerpSpeed, Color3.fromRGB(200, 200, 255))
+
+    elseif action == "stop" then
+        getgenv().OrbitToolsy = false
+        if chr:FindFirstChild("Humanoid") then chr.Humanoid.Health = 0 end
+        sendFlatNotification("System", "Orbit Shutdown", Color3.fromRGB(255, 50, 50))
+    end
+end
+
+
+function cleanupTool(h)
+    local index = table.find(handles, h)
+    if index then
+        if orbitParts[index] then orbitParts[index]:Destroy() end
+        if movers[h] then
+            if movers[h].align then movers[h].align:Destroy() end
+            if movers[h].angular then movers[h].angular:Destroy() end
+            movers[h] = nil
+        end
+        if connections[h] then connections[h]:Disconnect() connections[h] = nil end
+        table.remove(orbitParts, index)
+        table.remove(handles, index)
+        table.remove(toolNames, index)
+        removedQueue = removedQueue + 1
+        task.spawn(processBatchNotifications)
+    end
+end
+
+function setupTool(v)
+    if not v or not v:IsA("Tool") then return end
+    local h = v:FindFirstChild("Handle")
+    if not h or table.find(handles, h) then return end
+
+    v.Parent = chr
+    v.Parent = bp
+    v.Parent = workspace
+    v.Parent = chr
+
+    local ra = chr:FindFirstChild("Right Arm") or chr:FindFirstChild("RightHand")
+    if ra then
+        local grip = ra:FindFirstChild("RightGrip")
+        if grip then grip:Destroy() end
+    end
+
+    connections[h] = v.AncestryChanged:Connect(function(_, parent)
+        if parent ~= chr then cleanupTool(h) end
+    end)
+
+    table.insert(handles, h)
+    table.insert(toolNames, v.Name)
+    local index = #handles
+
+    local p = Instance.new("Part", workspace)
+    p.Name = "OrbitReference_" .. v.Name
+    p.Anchored, p.CanCollide, p.Transparency = true, false, 1
+    p.Size = Vector3.new(0.2, 0.2, 0.2)
+    p.Position = hrp.Position 
+    orbitParts[index] = p 
+
+    local av = Instance.new("BodyAngularVelocity", h)
+    av.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    av.P = 1250
+
+    local ap = Instance.new("AlignPosition", h)
+    ap.MaxForce, ap.MaxVelocity, ap.Responsiveness = math.huge, math.huge, 200
+    ap.Attachment0 = Instance.new("Attachment", h)
+    ap.Attachment1 = Instance.new("Attachment", p)
+
+    movers[h] = {align = ap, angular = av}
+    addedQueue = addedQueue + 1
+    task.spawn(processBatchNotifications)
+end
+
+local function createUI()
+    if getgenv and getgenv().OrbitUI then getgenv().OrbitUI:Destroy() end
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "FeOrbitUI"
+    pcall(function() screenGui.Parent = CoreGui end)
+    if not screenGui.Parent then screenGui.Parent = plr:WaitForChild("PlayerGui") end
+    if getgenv then getgenv().OrbitUI = screenGui end
+
+    local frame = Instance.new("Frame", screenGui)
+    frame.Size = UDim2.new(0, 240, 0, 100)
+    frame.Position = UDim2.new(0, 15, 0.5, -50)
+    frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Draggable = true
+
+    local uiCorner = Instance.new("UICorner", frame)
+    uiCorner.CornerRadius = UDim.new(0, 6)
+
+    local accent = Instance.new("Frame", frame)
+    accent.Size = UDim2.new(1, 0, 0, 2)
+    accent.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+    accent.BorderSizePixel = 0
+    Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 6)
+
+    local title = Instance.new("TextLabel", frame)
+    title.Size = UDim2.new(1, 0, 0, 35)
+    title.BackgroundTransparency = 1
+    title.Text = "ORBIT TERMINAL"
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 14
+
+    local inputFrame = Instance.new("Frame", frame)
+    inputFrame.Size = UDim2.new(0.85, 0, 0, 35)
+    inputFrame.Position = UDim2.new(0.075, 0, 0.5, 0)
+    inputFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    inputFrame.BorderSizePixel = 0
+    Instance.new("UICorner", inputFrame).CornerRadius = UDim.new(0, 4)
+
+    local cmdInput = Instance.new("TextBox", inputFrame)
+    cmdInput.Size = UDim2.new(1, -15, 1, 0)
+    cmdInput.Position = UDim2.new(0, 10, 0, 0)
+    cmdInput.BackgroundTransparency = 1
+    cmdInput.TextColor3 = Color3.new(1, 1, 1)
+    cmdInput.PlaceholderText = "Type commands..."
+    cmdInput.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    cmdInput.Font = Enum.Font.Code
+    cmdInput.TextSize = 13
+    cmdInput.TextXAlignment = Enum.TextXAlignment.Left
+    cmdInput.Text = ""
+
+    cmdInput.FocusLost:Connect(function(enter)
+        if enter and cmdInput.Text ~= "" then
+            processCommandString(cmdInput.Text)
+            cmdInput.Text = ""
+        end
+    end)
+end
+
+createUI()
+
+chr.ChildAdded:Connect(function(c) if c:IsA("Tool") then task.wait() setupTool(c) end end)
+for _, v in ipairs(chr:GetChildren()) do if v:IsA("Tool") then setupTool(v) end end
+
+RunService.RenderStepped:Connect(function()
+    if not getgenv().OrbitToolsy then return end
+    if not targetHRP or not targetHRP.Parent then targetHRP = hrp end
+    
+    rot = rot + speed
+    local time = os.clock()
+    local numTools = #orbitParts
+
+    for i, p in ipairs(orbitParts) do
+        if p and p.Parent then
+            local angle = math.rad(rot + (360 / numTools) * i)
+            local targetCFrame = CFrame.new()
+
+            -- [[ STATIC MODES (1-6) ]] --
+            if mode == 1 then
+                targetCFrame = targetHRP.CFrame * CFrame.Angles(0, angle, 0) * CFrame.new(offset, 0, 0)
+            elseif mode == 2 then
+                targetCFrame = targetHRP.CFrame * CFrame.new(math.cos(angle) * offset, math.sin(time * 2 + i) * 2, math.sin(angle) * offset)
+            elseif mode == 3 then
+                targetCFrame = targetHRP.CFrame * CFrame.Angles(angle, angle, 0) * CFrame.new(offset, 0, 0)
+            elseif mode == 4 then
+                targetCFrame = CFrame.new(targetHRP.Position) * CFrame.Angles(0, angle, 0) * CFrame.new(offset, 0, 0)
+            elseif mode == 5 then
+                targetCFrame = targetHRP.CFrame * CFrame.new(math.cos(angle) * offset, math.sin(angle) * offset, math.sin(angle) * offset)
+            elseif mode == 6 then
+                targetCFrame = targetHRP.CFrame * CFrame.Angles(angle, 0, angle) * CFrame.new(offset, 0, 0)
+            
+            
+            else
+                
+                local subType = mode % 8 
+                
+                
+                local safeSpeed = time * (1 + (mode % 5) / 10) 
+
+                if subType == 0 then 
+                    
+                    local petalCount = (mode % 5) + 3
+                    local wave = math.sin(angle * petalCount + safeSpeed) 
+                    local currentOffset = offset + (wave * (offset / 3))
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(0, angle, 0) * CFrame.new(currentOffset, 0, 0)
+                
+                elseif subType == 1 then
+                    
+                    local tiltX = math.rad((mode * 15) % 360) + (time * 0.5)
+                    local tiltZ = math.rad((mode * 45) % 360) 
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(tiltX, angle, tiltZ) * CFrame.new(offset, 0, 0)
+                
+                elseif subType == 2 then
+                    
+                    local height = math.sin(angle + (time * 2)) * (offset * 0.8)
+                    local twist = math.cos(safeSpeed + (i/2)) * 2
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(0, angle, 0) * CFrame.new(offset + twist, height, 0)
+                
+                elseif subType == 3 then
+                    
+                    local noiseX = math.sin(angle * ((mode % 3) + 1)) 
+                    local noiseY = math.cos(angle * ((mode % 2) + 1))
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(angle, 0, angle) * CFrame.new(offset * noiseX, offset * noiseY, 0)
+
+                elseif subType == 4 then
+                    
+                    local fig8X = math.cos(angle) * offset
+                    local fig8Z = math.sin(angle * 2) * offset -- Multiplying by 2 creates the crossover
+                    targetCFrame = targetHRP.CFrame * CFrame.new(fig8X, 0, fig8Z)
+
+                elseif subType == 5 then
+                    
+                    local spikeFreq = (mode % 4) + 3 -- 3 to 6 spikes
+                    local height = math.abs(math.sin(angle * spikeFreq)) * (offset * 0.8)
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(0, angle, 0) * CFrame.new(offset, height - (offset/2), 0)
+
+                elseif subType == 6 then
+                    
+                    local band = (i % 3) 
+                    local tiltAngle = math.rad(60 * band) -- 0, 60, or 120 degrees tilt
+                    
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(tiltAngle, angle, 0) * CFrame.new(offset, 0, 0)
+
+                elseif subType == 7 then
+                    
+                    local pulse = math.sin(safeSpeed * 2) * (offset * 0.4)
+                    targetCFrame = targetHRP.CFrame * CFrame.Angles(0, angle, 0) * CFrame.new(offset + pulse, 0, 0)
+                end
+                
+                
+                if mode > 20 then
+                    local slowWobble = math.rad(math.sin(time) * 15)
+                    targetCFrame = targetCFrame * CFrame.Angles(slowWobble, 0, slowWobble)
+                end
+            end
+
+            
+            local dt = RunService.RenderStepped:Wait()
+local alpha = 1 - math.exp(-lerpSpeed * dt)
+
+p.CFrame = p.CFrame:Lerp(targetCFrame, alpha)
+
+            
+            local h = handles[i]
+            if h and movers[h] then
+                
+                local spinVar = (mode % 30) 
+                movers[h].angular.AngularVelocity = Vector3.new(0, toolRotSpeed * (10 + spinVar), 0)
+            end
+        end
+    end
+    if sethiddenproperty then pcall(function() sethiddenproperty(plr, "SimulationRadius", math.huge) end) end
+end)
+
+local player = game:GetService("Players").LocalPlayer
+
+local function handleCharacter(character)
+	local function destroyGrip()
+		for _, obj in ipairs(character:GetDescendants()) do
+			if obj:IsA("Motor6D") and obj.Name == "RightGrip" then
+				obj:Destroy()
+			end
+		end
+	end
+
+	destroyGrip()
+
+	character.DescendantAdded:Connect(function(obj)
+		if obj:IsA("Motor6D") and obj.Name == "RightGrip" then
+			obj:Destroy()
+		end
+	end)
+end
+
+if player.Character then
+	handleCharacter(player.Character)
+end
+
+
+
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+
+local SETTINGS = {
+    VelocityY = 220.290009,
+    SimulationRadius = 2147483647
+}
+
+local lastHRPPos = hrp.Position
+local hrpVel = Vector3.zero
+
+
+RunService.Stepped:Connect(function()
+    settings().Physics.AllowSleep = false 
+    LocalPlayer.SimulationRadius = SETTINGS.SimulationRadius
+end)
+
+RunService.PostSimulation:Connect(function(dt)
+    if not targetHRP or not targetHRP.Parent then return end
+
+    local currentTime = os.clock()
+    local currentPos = hrp.Position
+    
+    if dt > 0 then
+        hrpVel = (currentPos - lastHRPPos) / dt
+    end
+    lastHRPPos = currentPos
+
+    
+    local predictedHRPPos = currentPos + hrpVel * 0.1
+
+    
+    local antiSleep = Vector3.new(0, math.sin(currentTime * 15) * 0.0015, 0)
+    
+    
+    local gravityAxis = SETTINGS.VelocityY + math.sin(currentTime)
+
+    for _, h in ipairs(handles) do
+        if h and h:IsA("BasePart") then
+            
+            if h.ReceiveAge == 0 then
+                local dir = predictedHRPPos - h.Position
+                local xz = Vector3.new(dir.X, 0, dir.Z)
+
+                local velXZ = Vector3.zero
+                if xz.Magnitude > 0 then
+                    velXZ = xz.Unit * xz.Magnitude * 2
+                end
+
+                
+                h.AssemblyLinearVelocity = Vector3.new(velXZ.X, gravityAxis, velXZ.Z)
+                h.AssemblyAngularVelocity = Vector3.new(0, math.huge, math.huge)
+
+                
+                h.CFrame = h.CFrame + antiSleep
+            end
+        end
+    end
+end)
+
+
+
+
+
+plr.CharacterAdded:Connect(function(c)
+    if getgenv().OrbitToolsy then
+        getgenv().OrbitToolsy = false
+        sendFlatNotification("System", "Orbit shutten down", Color3.fromRGB(255, 100, 100))
+    end
+    
+    
+    
+    table.clear(handles)
+    table.clear(orbitParts)
+    table.clear(movers)
+    table.clear(toolNames)
+    getgenv().OrbitUI:Destroy()
+    for _, con in pairs(connections) do con:Disconnect() end
+    table.clear(connections)
+end)
+
+sendFlatNotification("System", "Tool Orbit V3 Initialized", Color3.fromRGB(255, 255, 255))
+sendFlatNotification("System", "didnt work in some games", Color3.fromRGB(255, 255, 255))
