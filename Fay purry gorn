@@ -1,0 +1,167 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+-- ═══════════════════════════════════════
+-- VARIABLES & LOGIC
+-- ═══════════════════════════════════════
+local player = game.Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local targetBag = nil
+local farmConnection = nil
+
+local Config = {
+    Enabled = false,
+    Delay = 0.25,
+    Height = 3
+}
+
+-- Function to find the target bag
+local function findTargetBag()
+    local path = workspace:FindFirstChild("WorkspaceCom")
+    if path then
+        path = path:FindFirstChild("001_ElevatorBank")
+        if path then
+            targetBag = path:FindFirstChild("DuffleBagDiamonds")
+            return targetBag ~= nil
+        end
+    end
+    return false
+end
+
+-- Main Farming Logic
+local function farmDiamonds()
+    if not Config.Enabled then return end
+    
+    if not targetBag or not targetBag:IsDescendantOf(workspace) then
+        if not findTargetBag() then
+            return -- Silently wait for bag to respawn
+        end
+    end
+    
+    local character = player.Character
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local hrp = character.HumanoidRootPart
+        local teleportPosition = targetBag.Position + Vector3.new(0, (targetBag.Size.Y / 2) + Config.Height, 0)
+        hrp.CFrame = CFrame.new(teleportPosition)
+    end
+    
+    local cd = targetBag:FindFirstChild("ClickDetector")
+    if cd and fireclickdetector then
+        fireclickdetector(cd)
+    end
+end
+
+-- ═══════════════════════════════════════
+-- WINDOW SETUP
+-- ═══════════════════════════════════════
+local Window = Rayfield:CreateWindow({
+   Name = "gay broke dufflebag dupe",
+   LoadingTitle = "pay gorn",
+   LoadingSubtitle = "by Gemini",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "DiamondFarmData",
+      FileName = "MainConfig"
+   },
+   KeySystem = false -- Set to true if you want a key system
+})
+
+local MainTab = Window:CreateTab("duping", 4483362458) -- Home Icon
+local SettingsTab = Window:CreateTab("Settings", 4483362458) -- Settings Icon
+
+-- ═══════════════════════════════════════
+-- MAIN TAB ELEMENTS
+-- ═══════════════════════════════════════
+MainTab:CreateSection("Main Automation")
+
+local FarmToggle = MainTab:CreateToggle({
+   Name = "Dupe Niggas Dufflebags",
+   CurrentValue = false,
+   Flag = "FarmToggle",
+   Callback = function(Value)
+      Config.Enabled = Value
+      
+      if Value then
+         Rayfield:Notify({
+            Title = "Farm Started",
+            Content = "Teleporting to diamonds...",
+            Duration = 3,
+            Image = 4483362458,
+         })
+         
+         local lastRun = 0
+         farmConnection = RunService.Heartbeat:Connect(function()
+            if tick() - lastRun >= Config.Delay then
+               farmDiamonds()
+               lastRun = tick()
+            end
+         end)
+      else
+         if farmConnection then
+            farmConnection:Disconnect()
+            farmConnection = nil
+         end
+      end
+   end,
+})
+
+MainTab:CreateButton({
+   Name = "Force Find Bag",
+   Callback = function()
+      if findTargetBag() then
+         Rayfield:Notify({
+            Title = "Success",
+            Content = "Bag located!",
+            Duration = 2,
+         })
+      else
+         Rayfield:Notify({
+            Title = "Error",
+            Content = "Bag not found in workspace.",
+            Duration = 2,
+         })
+      end
+   end,
+})
+
+-- ═══════════════════════════════════════
+-- SETTINGS TAB ELEMENTS
+-- ═══════════════════════════════════════
+SettingsTab:CreateSection("Configuration")
+
+SettingsTab:CreateSlider({
+   Name = "Click Delay (Seconds)",
+   Range = {0.1, 2},
+   Increment = 0.05,
+   Suffix = "s",
+   CurrentValue = 0.25,
+   Flag = "DelaySlider",
+   Callback = function(Value)
+      Config.Delay = Value
+   end,
+})
+
+SettingsTab:CreateSlider({
+   Name = "Teleport Height",
+   Range = {0, 10},
+   Increment = 1,
+   Suffix = "Studs",
+   CurrentValue = 3,
+   Flag = "HeightSlider",
+   Callback = function(Value)
+      Config.Height = Value
+   end,
+})
+
+SettingsTab:CreateSection("Danger Zone")
+
+SettingsTab:CreateButton({
+   Name = "Unload Script",
+   Callback = function()
+      if farmConnection then farmConnection:Disconnect() end
+      Rayfield:Destroy()
+   end,
+})
+
+-- Final Check
+findTargetBag()
+ 
