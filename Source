@@ -29,7 +29,7 @@ local speed = 1
 local mode = 1
 local rot = 0
 local toolRotSpeed = 1
-local lerpSpeed = 1
+local lerpSpeed = 100
 
 local targetHRP = hrp
 local tweenEnabled = false
@@ -241,14 +241,20 @@ function setupTool(v)
     v.Parent = chr
 
 task.wait()
-    local grip = chr:FindFirstChild("Right Arm") and chr["Right Arm"]:FindFirstChild("RightGrip")
+    -- Search for both variations recursively
+local grip = chr:FindFirstChild("RightGrip", true) or chr:FindFirstChild("Right Grip", true)
+
+
+
+
+
 if grip then
-   
+    grip:Destroy()
     v.Parent = chr
     v.Parent = bp
     v.Parent = workspace
     v.Parent = chr
-    end
+end
 
     connections[h] = v.AncestryChanged:Connect(function(_, parent)
         if parent ~= chr then cleanupTool(h) end
@@ -455,19 +461,23 @@ if plr.Character then
 end
 
 local SETTINGS = {
-    VelocityY = 220.290009,
+    VelocityY = workspace.Gravity / 3,
     SimulationRadius = 2147483647
 }
 
 local lastHRPPos = hrp.Position
 local hrpVel = Vector3.zero
 
-RunService.Stepped:Connect(function()
-    settings().Physics.AllowSleep = false 
-    plr.SimulationRadius = SETTINGS.SimulationRadius
-end)
+local RunService = game:GetService("RunService")
 
-RunService.PostSimulation:Connect(function(dt)
+-- Constants extracted from Source 3 of your script
+local v3_101 = Vector3.new(1, 0, 1)
+local v3_010 = Vector3.new(0, 1, 0)
+local v3_xz = v3_101 * 10        -- Scales horizontal movement to stay "active"
+local v3_net = v3_010 * 25.01     -- The threshold to prevent network sleeping
+
+-- Replace PostSimulation with Heartbeat (used in Source 20)
+RunService.Heartbeat:Connect(function(dt)
     if not targetHRP or not targetHRP.Parent then return end
 
     local currentTime = os.clock()
@@ -478,27 +488,23 @@ RunService.PostSimulation:Connect(function(dt)
     end
     lastHRPPos = currentPos
 
+    -- Prediction for smooth visual placement
     local predictedHRPPos = currentPos + hrpVel * 0.1
-    local antiSleep = Vector3.new(0, math.sin(currentTime * 15) * 0.0015, 0)
-    local gravityAxis = SETTINGS.VelocityY + math.sin(currentTime)
 
     for _, h in ipairs(handles) do
         if h and h:IsA("BasePart") then
-            -- We just apply physics. The logic for resetting is handled in the Loop below.
+           
             local dir = predictedHRPPos - h.Position
-            local xz = Vector3.new(dir.X, 0, dir.Z)
-
-            local velXZ = Vector3.zero
-            if xz.Magnitude > 0 then
-                velXZ = xz.Unit * xz.Magnitude * 2
-            end
+            h.AssemblyLinearVelocity = (dir * v3_xz) + v3_net
             
-            h.AssemblyLinearVelocity = Vector3.new(velXZ.X, gravityAxis, velXZ.Z)
-            h.AssemblyAngularVelocity = Vector3.new(0, math.huge, math.huge)
-            h.CFrame = h.CFrame + antiSleep
+            -- 3. STABILITY
+            h.AssemblyAngularVelocity = Vector3.zero
+            
+
         end
     end
 end)
+
 
 -- [[ MOVEMENT STUCK DETECTION LOOP ]] --
 task.spawn(function()
@@ -527,7 +533,7 @@ task.spawn(function()
                     if (os.clock() - lastMove[h]) > 0.1 or isFalling then
                         local tool = h.Parent
                         
-                        sendFlatNotification("Smart Reclaim", "Reclaiming " .. tool.Name .. (isFalling and " (Falling)" or ""), Color3.fromRGB(0, 255, 50))
+                        sendFlatNotification("Reclaim", "Reclaiming " .. tool.Name .. (isFalling and " (Falling)" or ""), Color3.fromRGB(255, 170, 0))
                         
                         -- Reclaim process: Force-cycle the parent to reset physics/scripts
                         if tool.Parent == chr then
