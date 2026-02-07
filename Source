@@ -29,7 +29,7 @@ local speed = 1
 local mode = 1
 local rot = 0
 local toolRotSpeed = 1
-local lerpSpeed = 100
+local lerpSpeed = 10
 
 local targetHRP = hrp
 local tweenEnabled = false
@@ -277,10 +277,10 @@ end
 
     local av = Instance.new("BodyAngularVelocity", h)
     av.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    av.P = 1250
+    av.P = 0
 
     local ap = Instance.new("AlignPosition", h)
-    ap.MaxForce, ap.MaxVelocity, ap.Responsiveness = math.huge, math.huge, 200
+    ap.MaxForce, ap.MaxVelocity, ap.Responsiveness = math.huge, math.huge, 0
     ap.Attachment0 = Instance.new("Attachment", h)
     ap.Attachment1 = Instance.new("Attachment", p)
 
@@ -511,54 +511,40 @@ task.spawn(function()
     while getgenv().OrbitToolsy do
         task.wait(0.1) 
         
-        for i = #handles, 1, -1 do
-            local h = handles[i]
-            if h and h.Parent then
-                local currentPos = h.Position
+        for i, h in ipairs(handles) do
+            local targetPart = orbitParts[i] -- Get the specific target part for this tool
+            
+            if h and h.Parent and targetPart and targetPart.Parent then
+                -- Calculate distance between the real Handle and the target OrbitPart
+                local dist = (h.Position - targetPart.Position).Magnitude
                 
-                if not lastPos[h] then lastPos[h] = currentPos end
-                if not lastMove[h] then lastMove[h] = os.clock() end
-                
-                -- Calculate horizontal and vertical distance change
-                local horizontalDist = Vector2.new(currentPos.X - lastPos[h].X, currentPos.Z - lastPos[h].Z).Magnitude
-                local verticalDrop = lastPos[h].Y - currentPos.Y
-                
-                -- DETECTION LOGIC:
-                -- 1. Stagnation: Tool isn't moving at all (Original logic)
-                -- 2. Falling: Tool is dropping (Y decreasing) but X/Z are barely moving
-                local isStagnant = (currentPos - lastPos[h]).Magnitude < 0.1
-                local isFalling = (verticalDrop > 0.05) and (horizontalDist < 0.01)
-
-                if isStagnant or isFalling then
-                    if (os.clock() - lastMove[h]) > 0.1 or isFalling then
-                        local tool = h.Parent
-                        
-                        sendFlatNotification("Reclaim", "Reclaiming " .. tool.Name .. (isFalling and " (Falling)" or ""), Color3.fromRGB(255, 170, 0))
-                        
-                        -- Reclaim process: Force-cycle the parent to reset physics/scripts
-                        if tool.Parent == chr then
-                            tool.Parent = plr.Backpack
-                        end
-                        
-                        task.wait() -- Tiny delay to ensure the engine registers the parent change
-                        
-                        if tool.Parent == plr.Backpack then
-                            tool.Parent = chr 
-                        end
-                        
-                        -- Reset trackers after reclaim
-                        lastMove[h] = os.clock()
-                        lastPos[h] = h.Position
+                -- RECLAIM THRESHOLD: 
+                -- If the tool is more than 15 studs away from where it should be, reset it.
+                if dist > 15 then 
+                    local tool = h.Parent
+                    
+                    sendFlatNotification("Reclaim", "Reclaiming " .. tool.Name .. " (Dist: " .. math.floor(dist) .. ")", Color3.fromRGB(255, 170, 0))
+                    
+                    -- Reclaim process: Cycle parent to reset physics
+                    if tool.Parent == chr then
+                        tool.Parent = plr.Backpack
                     end
-                else
-                    -- Tool is moving normally in the orbit
-                    lastMove[h] = os.clock() 
-                    lastPos[h] = currentPos  
+                    
+                    task.wait() -- Tiny delay to ensure the engine registers the parent change
+                    
+                    if tool.Parent == plr.Backpack then
+                        tool.Parent = chr 
+                    end
+                    
+                    -- Reset trackers (optional, but good practice)
+                    if lastMove[h] then lastMove[h] = os.clock() end
+                    if lastPos[h] then lastPos[h] = h.Position end
                 end
             end
         end
     end
 end)
+
 
 
 plr.CharacterAdded:Connect(function(c)
