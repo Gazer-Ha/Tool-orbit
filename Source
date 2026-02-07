@@ -560,4 +560,4 @@ plr.CharacterAdded:Connect(function(c)
     table.clear(connections)
 end)
 
-sendFlatNotification("System", "Tool Orbit V3 Initialized", Color3.fromRGB(255, 255, 255))
+sendFlatNotification("System", "Tool Orbit V3.1 Initialized", Color3.fromRGB(255, 255, 255))
