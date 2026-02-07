@@ -233,17 +233,21 @@ function setupTool(v)
     local h = v:FindFirstChild("Handle")
     if not h or table.find(handles, h) then return end
 
-    -- Reset ownership cycle
-    v.Parent = bp
+    
+    
     v.Parent = chr
     v.Parent = bp
     v.Parent = workspace
     v.Parent = chr
 
-    local ra = chr:FindFirstChild("Right Arm") or chr:FindFirstChild("RightHand")
-    if ra then
-        local grip = ra:FindFirstChild("RightGrip")
-        if grip then grip:Destroy() end
+task.wait()
+    local grip = chr:FindFirstChild("Right Arm") and chr["Right Arm"]:FindFirstChild("RightGrip")
+if grip then
+   
+    v.Parent = chr
+    v.Parent = bp
+    v.Parent = workspace
+    v.Parent = chr
     end
 
     connections[h] = v.AncestryChanged:Connect(function(_, parent)
@@ -499,49 +503,57 @@ end)
 -- [[ MOVEMENT STUCK DETECTION LOOP ]] --
 task.spawn(function()
     while getgenv().OrbitToolsy do
-        task.wait(0.2) -- Check frequency (5 times a second)
+        task.wait(0.1) 
         
         for i = #handles, 1, -1 do
             local h = handles[i]
             if h and h.Parent then
                 local currentPos = h.Position
                 
-                -- Initialize if missing (safety check)
                 if not lastPos[h] then lastPos[h] = currentPos end
                 if not lastMove[h] then lastMove[h] = os.clock() end
                 
-                -- Check distance moved since last check
-                local dist = (currentPos - lastPos[h]).Magnitude
+                -- Calculate horizontal and vertical distance change
+                local horizontalDist = Vector2.new(currentPos.X - lastPos[h].X, currentPos.Z - lastPos[h].Z).Magnitude
+                local verticalDrop = lastPos[h].Y - currentPos.Y
                 
-                
-                if dist > 0.1 then
-                    lastMove[h] = os.clock() -- Update timestamp
-                    lastPos[h] = currentPos  -- Update last known position
-                else
-                    
-                    if (os.clock() - lastMove[h]) > 0.1 then
-                        -- It has been stuck for > 1 second
+                -- DETECTION LOGIC:
+                -- 1. Stagnation: Tool isn't moving at all (Original logic)
+                -- 2. Falling: Tool is dropping (Y decreasing) but X/Z are barely moving
+                local isStagnant = (currentPos - lastPos[h]).Magnitude < 0.1
+                local isFalling = (verticalDrop > 0.05) and (horizontalDist < 0.01)
+
+                if isStagnant or isFalling then
+                    if (os.clock() - lastMove[h]) > 0.1 or isFalling then
                         local tool = h.Parent
                         
-                        sendFlatNotification("Smart Reclaim", "Reclaiming " .. tool.Name, Color3.fromRGB(0, 255, 50))
+                        sendFlatNotification("Smart Reclaim", "Reclaiming " .. tool.Name .. (isFalling and " (Falling)" or ""), Color3.fromRGB(0, 255, 50))
                         
-                        -- Force Reset
+                        -- Reclaim process: Force-cycle the parent to reset physics/scripts
                         if tool.Parent == chr then
                             tool.Parent = plr.Backpack
                         end
                         
-                        -- Wait brief moment
-                        
+                        task.wait() -- Tiny delay to ensure the engine registers the parent change
                         
                         if tool.Parent == plr.Backpack then
-                            tool.Parent = chr -- Triggers SetupTool -> Updates lastMove
+                            tool.Parent = chr 
                         end
+                        
+                        -- Reset trackers after reclaim
+                        lastMove[h] = os.clock()
+                        lastPos[h] = h.Position
                     end
+                else
+                    -- Tool is moving normally in the orbit
+                    lastMove[h] = os.clock() 
+                    lastPos[h] = currentPos  
                 end
             end
         end
     end
 end)
+
 
 plr.CharacterAdded:Connect(function(c)
     if getgenv().OrbitToolsy then
