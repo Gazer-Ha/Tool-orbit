@@ -29,7 +29,7 @@ local speed = 1
 local mode = 1
 local rot = 0
 local toolRotSpeed = 1
-local lerpSpeed = 10
+local lerpSpeed = 1
 
 local targetHRP = hrp
 local tweenEnabled = false
@@ -233,28 +233,24 @@ function setupTool(v)
     local h = v:FindFirstChild("Handle")
     if not h or table.find(handles, h) then return end
 
-    
-    
+    -- Reset ownership cycle
+    v.Parent = bp
     v.Parent = chr
     v.Parent = bp
     v.Parent = workspace
     v.Parent = chr
 
-task.wait()
-    -- Search for both variations recursively
-local grip = chr:FindFirstChild("RightGrip", true) or chr:FindFirstChild("Right Grip", true)
-
-
-
-
-
-if grip then
-    grip:Destroy()
+    local ra = chr:FindFirstChild("Right Arm") or chr:FindFirstChild("RightHand")
+    if ra then
+        local grip = ra:FindFirstChild("RightGrip")
+        if grip then grip:Destroy() 
+    v.Parent = bp
     v.Parent = chr
     v.Parent = bp
     v.Parent = workspace
     v.Parent = chr
 end
+    end
 
     connections[h] = v.AncestryChanged:Connect(function(_, parent)
         if parent ~= chr then cleanupTool(h) end
@@ -277,10 +273,10 @@ end
 
     local av = Instance.new("BodyAngularVelocity", h)
     av.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    av.P = 0
+    av.P = 1250
 
     local ap = Instance.new("AlignPosition", h)
-    ap.MaxForce, ap.MaxVelocity, ap.Responsiveness = math.huge, math.huge, 0
+    ap.MaxForce, ap.MaxVelocity, ap.Responsiveness = math.huge, math.huge, 200
     ap.Attachment0 = Instance.new("Attachment", h)
     ap.Attachment1 = Instance.new("Attachment", p)
 
@@ -461,23 +457,19 @@ if plr.Character then
 end
 
 local SETTINGS = {
-    VelocityY = workspace.Gravity / 3,
+    VelocityY = 220.290009,
     SimulationRadius = 2147483647
 }
 
 local lastHRPPos = hrp.Position
 local hrpVel = Vector3.zero
 
-local RunService = game:GetService("RunService")
+RunService.Stepped:Connect(function()
+    settings().Physics.AllowSleep = false 
+    plr.SimulationRadius = SETTINGS.SimulationRadius
+end)
 
--- Constants extracted from Source 3 of your script
-local v3_101 = Vector3.new(1, 0, 1)
-local v3_010 = Vector3.new(0, 1, 0)
-local v3_xz = v3_101 * 10        -- Scales horizontal movement to stay "active"
-local v3_net = v3_010 * 25.01     -- The threshold to prevent network sleeping
-
--- Replace PostSimulation with Heartbeat (used in Source 20)
-RunService.Heartbeat:Connect(function(dt)
+RunService.PostSimulation:Connect(function(dt)
     if not targetHRP or not targetHRP.Parent then return end
 
     local currentTime = os.clock()
@@ -488,63 +480,63 @@ RunService.Heartbeat:Connect(function(dt)
     end
     lastHRPPos = currentPos
 
-    -- Prediction for smooth visual placement
     local predictedHRPPos = currentPos + hrpVel * 0.1
+    local antiSleep = Vector3.new(0, math.sin(currentTime * 15) * 0.0015, 0)
+    local gravityAxis = SETTINGS.VelocityY + math.sin(currentTime)
 
     for _, h in ipairs(handles) do
         if h and h:IsA("BasePart") then
-           
+            -- We just apply physics. The logic for resetting is handled in the Loop below.
             local dir = predictedHRPPos - h.Position
-            h.AssemblyLinearVelocity = (dir * v3_xz) + v3_net
-            
-            -- 3. STABILITY
-            h.AssemblyAngularVelocity = Vector3.zero
-            
+            local xz = Vector3.new(dir.X, 0, dir.Z)
 
+            local velXZ = Vector3.zero
+            if xz.Magnitude > 0 then
+                velXZ = xz.Unit * xz.Magnitude * 2
+            end
+            
+            h.AssemblyLinearVelocity = Vector3.new(velXZ.X, gravityAxis, velXZ.Z)
+            h.AssemblyAngularVelocity = Vector3.new(0, math.huge, math.huge)
+            h.CFrame = h.CFrame + antiSleep
         end
     end
 end)
 
-
 -- [[ MOVEMENT STUCK DETECTION LOOP ]] --
+-- [[ DISTANCE-BASED RECLAIM LOOP ]] --
+local MAX_ORBIT_DISTANCE = 8 -- Max studs handle can be from orbit part before reclaim
+
 task.spawn(function()
     while getgenv().OrbitToolsy do
-        task.wait(0.1) 
+        task.wait(0.1) -- Frequent checks for responsiveness
         
-        for i, h in ipairs(handles) do
-            local targetPart = orbitParts[i] -- Get the specific target part for this tool
+        for i = #handles, 1, -1 do
+            local h = handles[i]
+            local orbitPart = orbitParts[i]
             
-            if h and h.Parent and targetPart and targetPart.Parent then
-                -- Calculate distance between the real Handle and the target OrbitPart
-                local dist = (h.Position - targetPart.Position).Magnitude
+            if h and h.Parent and orbitPart then
+                -- Calculate distance between physical handle and its invisible target part
+                local separation = (h.Position - orbitPart.Position).Magnitude
                 
-                -- RECLAIM THRESHOLD: 
-                -- If the tool is more than 15 studs away from where it should be, reset it.
-                if dist > 15 then 
+                -- If separation is too large, it means the tool is snagged or glitched
+                if separation > MAX_ORBIT_DISTANCE then
                     local tool = h.Parent
                     
-                    sendFlatNotification("Reclaim", "Reclaiming " .. tool.Name .. " (Dist: " .. math.floor(dist) .. ")", Color3.fromRGB(255, 170, 0))
+                    sendFlatNotification("Orbit Sync", "Resyncing: " .. tool.Name, Color3.fromRGB(0, 255, 150))
                     
-                    -- Reclaim process: Cycle parent to reset physics
+                    -- Reclaim Logic: Cycles parent to refresh ownership and physics
                     if tool.Parent == chr then
-                        tool.Parent = plr.Backpack
+                        tool.Parent = bp
+                        task.wait() -- Small delay to ensure engine registers unequip
+                        if tool.Parent == bp then
+                            tool.Parent = chr
+                        end
                     end
-                    
-                    task.wait() -- Tiny delay to ensure the engine registers the parent change
-                    
-                    if tool.Parent == plr.Backpack then
-                        tool.Parent = chr 
-                    end
-                    
-                    -- Reset trackers (optional, but good practice)
-                    if lastMove[h] then lastMove[h] = os.clock() end
-                    if lastPos[h] then lastPos[h] = h.Position end
                 end
             end
         end
     end
 end)
-
 
 
 plr.CharacterAdded:Connect(function(c)
@@ -564,4 +556,4 @@ plr.CharacterAdded:Connect(function(c)
     table.clear(connections)
 end)
 
-sendFlatNotification("System", "Tool Orbit V3.1 Initialized", Color3.fromRGB(255, 255, 255))
+sendFlatNotification("System", "Tool Orbit V3 Initialized", Color3.fromRGB(255, 255, 255))
