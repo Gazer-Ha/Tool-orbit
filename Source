@@ -18,7 +18,6 @@ local movers = {}
 local connections = {}
 local toolNames = {}
 
--- [[ NEW TRACKING TABLES ]] --
 local lastPos = {}
 local lastMove = {}
 local offset = 8
@@ -32,11 +31,9 @@ local tweenEnabled = false
 local tweenDelay = 0.5
 local lastTargetChange = os.clock()
 
-local addedQueue = 0
-local removedQueue = 0
-local batchTimerActive = false
+local addedT = {}
+local removedT = {}
 
--- [[ NOTIFICATION GUI ]] --
 local notifGui = Instance.new("ScreenGui")
 notifGui.Name = "FlatNotifGui"
 notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
@@ -90,9 +87,10 @@ local function sendFlatNotification(title, text, color)
     mLabel.TextSize = 11
     mLabel.BackgroundTransparency = 1
     mLabel.TextXAlignment = Enum.TextXAlignment.Left
+    mLabel.TextWrapped = true
 
     TweenService:Create(nFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Size = UDim2.new(1, 0, 0, 55)}):Play()
-    task.delay(1.4, function()
+    task.delay(2.5, function()
         local t = TweenService:Create(nFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size = UDim2.new(0, 0, 0, 55)})
         t:Play()
         t.Completed:Wait()
@@ -100,33 +98,25 @@ local function sendFlatNotification(title, text, color)
     end)
 end
 
-local function processBatchNotifications()
-    if batchTimerActive then return end
-    batchTimerActive = true
-    task.wait(0.1)
-    if addedQueue > 0 then
-        addedQueue = 0
+task.spawn(function()
+    while getgenv().OrbitToolsy do
+        task.wait(3)
+        if #addedT > 0 or #removedT > 0 then
+            local txt = ""
+            if #addedT > 0 then
+                txt = txt .. "+ " .. table.concat(addedT, ", ") .. " "
+            end
+            if #removedT > 0 then
+                txt = txt .. "- " .. table.concat(removedT, ", ")
+            end
+            sendFlatNotification("Tool Update", txt, Color3.fromRGB(150, 150, 150))
+            table.clear(addedT)
+            table.clear(removedT)
+        end
     end
-    if removedQueue > 0 then
-        removedQueue = 0
-    end
-    batchTimerActive = false
-end
+end)
 
--- Commands and their documentation
-local commands = {
-    offset = {"dist", "distance", "range", "radius", "gap", "far", "o"},
-    speed = {"s", "ospeed", "orbitspeed", "spd"},
-    rot = {"rs", "rotspeed", "spin", "spinspd", "spinspeed", "r"},
-    mode = {"m", "pattern", "style", "type", "shape", "p"},
-    target = {"orbit", "t", "lock", "goto", "track", "player", "p", "watch"},
-    unorbit = {"untarget", "unt", "me", "self", "reset", "u", "home", "back"},
-    equip = {"e", "get", "grab", "hold", "equiptool"},
-    unequip = {"unet", "store", "u", "hide", "unequiptool"},
-    stop = {"exit", "off", "close", "quit", "end", "kill", "die"},
-    lerp = {"smooth", "smoothness", "weight", "transition", "l"},
-    help = {"h", "cmds", "info", "?"}
-}
+local cmds = {"offset", "speed", "rot", "mode", "target", "unorbit", "equip", "unequip", "stop", "lerp", "help"}
 
 local cmdDocs = {
     offset = "offset [num] - Sets radius distance",
@@ -142,21 +132,10 @@ local cmdDocs = {
     help = "help - Toggles the command list menu"
 }
 
-local function getMainCmd(alias)
-    if commands[alias] then return alias end
-    for main, aliases in pairs(commands) do
-        if table.find(aliases, alias) then return main end
-    end
-    return nil
-end
-
 local function getPartialMatch(input)
     if not input or input == "" then return nil end
-    for mainCmd, aliases in pairs(commands) do
-        if mainCmd:sub(1, #input) == input then return mainCmd end
-        for _, alias in ipairs(aliases) do
-            if alias:sub(1, #input) == input then return mainCmd end
-        end
+    for _, c in ipairs(cmds) do
+        if c:sub(1, #input) == input then return c end
     end
     return nil
 end
@@ -168,26 +147,25 @@ local function processCommandString(input)
     local args = input:split(" ")
     if #args == 0 then return end
 
-    local cmd = args[1]:lower()
+    local c = args[1]:lower()
     local val = args[2]
 
-    local action = getMainCmd(cmd)
-    if not action then return end
+    if not table.find(cmds, c) then return end
 
-    if action == "offset" then
+    if c == "offset" then
         offset = tonumber(val) or offset
         sendFlatNotification("Settings", "Distance: " .. offset, Color3.fromRGB(150, 150, 150))
-    elseif action == "speed" then
-        local inputSpeed = tonumber(val) or speed
-        speed = (inputSpeed < 0.5 and inputSpeed > -0.5) and ((inputSpeed >= 0) and 0.5 or -0.5) or inputSpeed
+    elseif c == "speed" then
+        local s = tonumber(val) or speed
+        speed = (s < 0.5 and s > -0.5) and ((s >= 0) and 0.5 or -0.5) or s
         sendFlatNotification("Settings", "Orbit Speed: " .. speed, Color3.fromRGB(150, 150, 150))
-    elseif action == "rot" then
+    elseif c == "rot" then
         toolRotSpeed = tonumber(val) or toolRotSpeed
         sendFlatNotification("Settings", "Tool Spin: " .. toolRotSpeed, Color3.fromRGB(150, 150, 150))
-    elseif action == "mode" then
+    elseif c == "mode" then
         mode = tonumber(val) or mode
         sendFlatNotification("Settings", "Pattern Mode: " .. mode, Color3.fromRGB(150, 150, 150))
-    elseif action == "target" then
+    elseif c == "target" then
         if not val then return end
         for _, p in ipairs(Players:GetPlayers()) do
             if p.Name:lower():find(val:lower(), 1, true) or (p.DisplayName and p.DisplayName:lower():find(val:lower(), 1, true)) then
@@ -198,27 +176,25 @@ local function processCommandString(input)
                 break
             end
         end
-    elseif action == "unorbit" then
+    elseif c == "unorbit" then
         targetHRP = hrp
         sendFlatNotification("Targeting", "Returned to self", Color3.fromRGB(200, 200, 200))
-    elseif action == "equip" then
+    elseif c == "equip" then
         for _, tool in ipairs(plr.Backpack:GetChildren()) do
             if tool:IsA("Tool") then tool.Parent = chr end
         end
         sendFlatNotification("Command", "Equipped All", Color3.fromRGB(150, 150, 150))
-    elseif action == "unequip" then
+    elseif c == "unequip" then
         for _, tool in ipairs(chr:GetChildren()) do
             if tool:IsA("Tool") then tool.Parent = plr.Backpack end
         end
         sendFlatNotification("Command", "Unequipped All", Color3.fromRGB(150, 150, 150))
-    elseif action == "lerp" then
+    elseif c == "lerp" then
         lerpSpeed = tonumber(val) or lerpSpeed
         sendFlatNotification("Settings", "Tween Speed: " .. lerpSpeed, Color3.fromRGB(150, 150, 150))
-    elseif action == "help" then
-        if helpFrame then
-            helpFrame.Visible = not helpFrame.Visible
-        end
-    elseif action == "stop" then
+    elseif c == "help" then
+        if helpFrame then helpFrame.Visible = not helpFrame.Visible end
+    elseif c == "stop" then
         getgenv().OrbitToolsy = false
         if chr:FindFirstChild("Humanoid") then chr.Humanoid.Health = 0 end
         sendFlatNotification("System", "Orbit Shutdown", Color3.fromRGB(100, 100, 100))
@@ -226,11 +202,12 @@ local function processCommandString(input)
 end
 
 function cleanupTool(h)
-    local index = table.find(handles, h)
-    if index then
+    local i = table.find(handles, h)
+    if i then
+        table.insert(removedT, toolNames[i])
         lastPos[h] = nil
         lastMove[h] = nil
-        if orbitParts[index] then orbitParts[index]:Destroy() end
+        if orbitParts[i] then orbitParts[i]:Destroy() end
         if movers[h] then
             if movers[h].align then movers[h].align:Destroy() end
             if movers[h].angular then movers[h].angular:Destroy() end
@@ -240,11 +217,9 @@ function cleanupTool(h)
             connections[h]:Disconnect()
             connections[h] = nil
         end
-        table.remove(orbitParts, index)
-        table.remove(handles, index)
-        table.remove(toolNames, index)
-        removedQueue = removedQueue + 1
-        task.spawn(processBatchNotifications)
+        table.remove(orbitParts, i)
+        table.remove(handles, i)
+        table.remove(toolNames, i)
     end
 end
 
@@ -277,7 +252,8 @@ function setupTool(v)
     end)
     table.insert(handles, h)
     table.insert(toolNames, v.Name)
-    local index = #handles
+    table.insert(addedT, v.Name)
+    local i = #handles
 
     lastPos[h] = h.Position
     lastMove[h] = os.clock()
@@ -287,7 +263,7 @@ function setupTool(v)
     p.Anchored, p.CanCollide, p.Transparency = true, false, 1
     p.Size = Vector3.new(0.2, 0.2, 0.2)
     p.Position = hrp.Position
-    orbitParts[index] = p
+    orbitParts[i] = p
 
     local av = Instance.new("BodyAngularVelocity", h)
     av.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
@@ -299,8 +275,6 @@ function setupTool(v)
     ap.Attachment1 = Instance.new("Attachment", p)
 
     movers[h] = {align = ap, angular = av}
-    addedQueue = addedQueue + 1
-    task.spawn(processBatchNotifications)
 end
 
 local function createUI()
@@ -312,7 +286,6 @@ local function createUI()
     if not screenGui.Parent then screenGui.Parent = plr:WaitForChild("PlayerGui") end
     if getgenv then getgenv().OrbitUI = screenGui end
 
-    -- MAIN TERMINAL FRAME
     local frame = Instance.new("Frame", screenGui)
     frame.Size = UDim2.new(0.3, 0, 0, 80)
     frame.Position = UDim2.new(0, 15, 0.5, -40)
@@ -355,7 +328,6 @@ local function createUI()
     inStroke.Transparency = 0.7
     inStroke.Thickness = 1
 
-    -- INLINE SUGGESTION (Sits behind input)
     local suggestionLabel = Instance.new("TextLabel", inputContainer)
     suggestionLabel.Size = UDim2.new(1, -20, 1, 0)
     suggestionLabel.Position = UDim2.new(0, 10, 0, 0)
@@ -367,7 +339,6 @@ local function createUI()
     suggestionLabel.Text = ""
     suggestionLabel.ZIndex = 1
 
-    -- ACTUAL INPUT
     local cmdInput = Instance.new("TextBox", inputContainer)
     cmdInput.Size = UDim2.new(1, -20, 1, 0)
     cmdInput.Position = UDim2.new(0, 10, 0, 0)
@@ -382,7 +353,6 @@ local function createUI()
     cmdInput.ZIndex = 2
     cmdInput.ClearTextOnFocus = false
 
-    -- HELP MENU FRAME
     helpFrame = Instance.new("Frame", screenGui)
     helpFrame.Size = UDim2.new(0.4, 0, 0.6, 0)
     helpFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -424,7 +394,6 @@ local function createUI()
     closeBtn.TextSize = 16
     closeBtn.MouseButton1Click:Connect(function() helpFrame.Visible = false end)
 
-    -- SEARCH BAR IN HELP MENU
     local searchContainer = Instance.new("Frame", helpFrame)
     searchContainer.Size = UDim2.new(1, -30, 0, 30)
     searchContainer.Position = UDim2.new(0, 15, 0, 40)
@@ -443,7 +412,7 @@ local function createUI()
     searchBox.Position = UDim2.new(0, 10, 0, 0)
     searchBox.BackgroundTransparency = 1
     searchBox.TextColor3 = Color3.new(1, 1, 1)
-    searchBox.PlaceholderText = "Search commands or aliases..."
+    searchBox.PlaceholderText = "Search commands..."
     searchBox.PlaceholderColor3 = Color3.fromRGB(100, 100, 100)
     searchBox.Font = Enum.Font.Code
     searchBox.TextSize = 12
@@ -463,17 +432,17 @@ local function createUI()
     listLayout.Padding = UDim.new(0, 8)
     listLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
-    for cmd, desc in pairs(cmdDocs) do
+    for c, desc in pairs(cmdDocs) do
         local entry = Instance.new("Frame", scrollFrame)
-        entry.Size = UDim2.new(1, -10, 0, 45)
+        entry.Size = UDim2.new(1, -10, 0, 30)
         entry.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
         entry.BackgroundTransparency = 0.4
         entry.BorderSizePixel = 0
         Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 6)
 
         local eTitle = Instance.new("TextLabel", entry)
-        eTitle.Size = UDim2.new(1, -10, 0, 20)
-        eTitle.Position = UDim2.new(0, 10, 0, 5)
+        eTitle.Size = UDim2.new(1, -10, 1, 0)
+        eTitle.Position = UDim2.new(0, 10, 0, 0)
         eTitle.BackgroundTransparency = 1
         eTitle.Text = desc
         eTitle.TextColor3 = Color3.new(1, 1, 1)
@@ -481,26 +450,14 @@ local function createUI()
         eTitle.TextSize = 12
         eTitle.TextXAlignment = Enum.TextXAlignment.Left
 
-        local eAlias = Instance.new("TextLabel", entry)
-        eAlias.Size = UDim2.new(1, -10, 0, 15)
-        eAlias.Position = UDim2.new(0, 10, 0, 25)
-        eAlias.BackgroundTransparency = 1
-        eAlias.Text = "Aliases: " .. table.concat(commands[cmd], ", ")
-        eAlias.TextColor3 = Color3.fromRGB(120, 120, 120)
-        eAlias.Font = Enum.Font.Code
-        eAlias.TextSize = 10
-        eAlias.TextXAlignment = Enum.TextXAlignment.Left
-
-        helpEntries[cmd] = entry
+        helpEntries[c] = entry
     end
 
-    -- SEARCH LOGIC
     searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         local query = searchBox.Text:lower()
-        for cmd, entry in pairs(helpEntries) do
-            local aliasStr = table.concat(commands[cmd], " "):lower()
-            local descStr = cmdDocs[cmd]:lower()
-            if query == "" or cmd:find(query) or aliasStr:find(query) or descStr:find(query) then
+        for c, entry in pairs(helpEntries) do
+            local descStr = cmdDocs[c]:lower()
+            if query == "" or c:find(query) or descStr:find(query) then
                 entry.Visible = true
             else
                 entry.Visible = false
@@ -508,50 +465,85 @@ local function createUI()
         end
     end)
 
-    -- AUTOCORRECT / INLINE SUGGESTION LOGIC
     local isUpdating = false
+    local currentSuggestionCommand = ""
+    
     cmdInput:GetPropertyChangedSignal("Text"):Connect(function()
         if isUpdating then return end
         local txt = cmdInput.Text
+        if txt == "" then suggestionLabel.Text = ""; currentSuggestionCommand = ""; return end
         
-        if txt == "" then 
-            suggestionLabel.Text = "" 
-            return 
+        local spaceHit = txt:sub(-1) == " "
+        local evalTxt = spaceHit and txt:sub(1, -2) or txt
+        local args = evalTxt:split(" ")
+        
+        local tCmd = args[1]:lower()
+        local match = getPartialMatch(tCmd)
+        
+        currentSuggestionCommand = ""
+
+        if spaceHit and #args == 1 and match then
+            isUpdating = true
+            cmdInput.Text = match .. " "
+            cmdInput.CursorPosition = #cmdInput.Text + 1
+            suggestionLabel.Text = match .. " "
+            isUpdating = false
+            return
         end
 
-        -- Autocorrect triggered by Spacebar
-        if txt:sub(-1) == " " then
-            local word = txt:sub(1, -2):lower()
-            local match = getPartialMatch(word)
-            if match then
-                isUpdating = true
-                cmdInput.Text = match .. " "
-                cmdInput.CursorPosition = #cmdInput.Text + 1
-                suggestionLabel.Text = match .. " "
-                isUpdating = false
-                return
+        if match then
+            if #args == 1 then
+                local doc = cmdDocs[match] or match
+                suggestionLabel.Text = txt .. doc:sub(#tCmd + 1)
+                currentSuggestionCommand = match
+            elseif #args == 2 and match == "target" and args[2] ~= "" then
+                local sName = args[2]:lower()
+                local found = nil
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p.Name:lower():sub(1, #sName) == sName then found = p.Name break end
+                    if p.DisplayName:lower():sub(1, #sName) == sName then found = p.DisplayName break end
+                end
+                
+                if found then
+                    currentSuggestionCommand = args[1] .. " " .. found
+                    suggestionLabel.Text = args[1] .. " " .. args[2] .. found:sub(#sName + 1)
+                    
+                    if spaceHit then
+                        isUpdating = true
+                        cmdInput.Text = currentSuggestionCommand .. " "
+                        cmdInput.CursorPosition = #cmdInput.Text + 1
+                        suggestionLabel.Text = cmdInput.Text
+                        isUpdating = false
+                    end
+                else
+                    suggestionLabel.Text = ""
+                end
+            else
+                suggestionLabel.Text = ""
             end
-        end
-
-        -- Inline Suggestion Visuals
-        local args = txt:split(" ")
-        local typingCmd = args[1]:lower()
-        local match = getPartialMatch(typingCmd)
-
-        if match and #args == 1 then
-            local fullDoc = cmdDocs[match] or match
-            -- Perfectly mirrors your typing, fills the rest in gray
-            suggestionLabel.Text = txt .. fullDoc:sub(#typingCmd + 1)
         else
             suggestionLabel.Text = ""
         end
     end)
 
     cmdInput.FocusLost:Connect(function(enter)
-        if enter and cmdInput.Text ~= "" then
-            processCommandString(cmdInput.Text)
+        if enter and cmdInput.Text:gsub(" ", "") ~= "" then
+            local finalCmd = cmdInput.Text
+            
+            -- If we have an active autofill ready and what the user typed matches the start of it
+            if currentSuggestionCommand and currentSuggestionCommand ~= "" then
+                if currentSuggestionCommand:lower():sub(1, #finalCmd) == finalCmd:lower() then
+                    finalCmd = currentSuggestionCommand
+                end
+            end
+
+            processCommandString(finalCmd)
+            
+            isUpdating = true
             cmdInput.Text = ""
             suggestionLabel.Text = ""
+            currentSuggestionCommand = ""
+            isUpdating = false
         end
     end)
 end
@@ -714,37 +706,17 @@ end)
 
 local MAX_ORBIT_DISTANCE = 8
 
-local fixCounter = 0
-local fixedToolNames = {}
-
 task.spawn(function()
     while getgenv().OrbitToolsy do
         task.wait(0.1)
         for i = #handles, 1, -1 do
             local h = handles[i]
             local orbitPart = orbitParts[i]
-            
             if h and h.Parent and orbitPart then
                 local separation = (h.Position - orbitPart.Position).Magnitude
-                
                 if separation > MAX_ORBIT_DISTANCE then
                     local tool = h.Parent
-                    
-                    -- Track the fix
-                    fixCounter = fixCounter + 1
-                    table.insert(fixedToolNames, tool.Name)
-                    
-                    -- Only notify every 5 fixes
-                    if fixCounter >= 5 then
-                        local toolList = table.concat(fixedToolNames, ", ")
-                        sendFlatNotification("Orbit Sync", "Fixed: " .. toolList, Color3.fromRGB(150, 150, 150))
-                        
-                        -- Reset tracking
-                        fixCounter = 0
-                        fixedToolNames = {}
-                    end
-
-                    -- Resync logic
+                    sendFlatNotification("Orbit Sync", "Resyncing: " .. tool.Name, Color3.fromRGB(150, 150, 150))
                     if tool.Parent == chr then
                         tool.Parent = bp
                         task.wait()
@@ -755,7 +727,6 @@ task.spawn(function()
         end
     end
 end)
-
 
 plr.CharacterAdded:Connect(function(c)
     if getgenv().OrbitToolsy then
