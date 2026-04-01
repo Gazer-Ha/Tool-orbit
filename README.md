@@ -1,112 +1,58 @@
-# Command Reference
+# Tool Orbit by me
 
-Quick guide to all available commands and their aliases.
-
----
-
-1. Offset
-Set distance/range from target.
-
-		
-Usage	`offset <number>`	
-Aliases	`dist`, `distance`, `range`, `radius`, `gap`, `far`, `o`	
+hello skids, ts make ur tools float n orbit around u n stuff yh. got like 20+ patterns, commands u can type, lil notifs in the corner. pretty clean ngl
 
 ---
 
-2. Speed
-Adjust orbit speed / movement rate.
+## wat it do
 
-		
-Usage	`speed <number>`	
-Aliases	`s`, `ospeed`, `orbitspeed`, `spd`	
-
----
-
-3. Rotation Speed
-Control spin speed around the target.
-
-		
-Usage	`rotationspeed <number>`	
-Aliases	`rs`, `rotspeed`, `spin`, `spinspd`, `spinspeed`, `r`	
+- tools just float n spin around u every frame
+- works on other players too if u wanna orbit someone else
+- auto picks up tools when u equip em, drops em when u dont
+- lil popup notifs tell u whats happening
+- command bar w tab autocomplete so u aint typin the whole thing
+- got a resync thing so if a tool drifts too far it snaps back
+- cleans itself up when u respawn, no weird leftovers
 
 ---
 
-4. Mode
-Switch patterns, styles, or shapes.
+## commands
 
-		
-Usage	`mode <name>`	
-Aliases	`m`, `pattern`, `style`, `type`, `shape`
+just type in the bar that shows up, tab to autocomplete btw
 
----
-
-5. Target
-Lock onto and follow a player.
-
-		
-Usage	`target <username>`	
-Aliases	`orbit`, `t`, `lock`, `goto`, `track`, `player`, `p`, `watch`	
-
-> Tip: Usernames can be shortened. Partial matches work.
-
----
-
-6. Unorbit
-Release target and return to self.
-
-		
-Usage	`unorbit`	
-Aliases	`untarget`, `unt`, `me`, `self`, `reset`, `u`, `home`, `back`	
+| command | wat it do |
+|---|---|
+| `offset [num]` | how far the tools float from u |
+| `speed [num]` | how fast they go around |
+| `rot [num]` | how fast the tools spin on themselves |
+| `mode [num]` | changes the pattern, 1 to 20+ |
+| `lerp [num]` | smoothness of the movement |
+| `target [name]` | orbit around someone else, partial name works |
+| `unorbit` | come back to urself |
+| `equip` | equips everything in ur backpack |
+| `unequip` | dumps it all back |
+| `help` | shows the command list |
+| `stop` | kills the script |
 
 ---
 
-7. Equip Tool
-Equip the selected tool.
+## patterns
 
-		
-Usage	`equiptool`	
-Aliases	`e`, `get`, `grab`, `hold`, `equiptool`	
+modes 1-6 r set ones:
 
----
+- **1** - basic flat circle
+- **2** - circle w a up down wave
+- **3** - dual axis spin
+- **4** - world space circle, doesnt follow ur rotation
+- **5** - 3d sphere path
+- **6** - rolling tilt thing
 
-8. Unequip Tool
-Store the equipped tool.
-
-		
-Usage	`unequiptool`	
-Aliases	`unet`, `store`, `hide`, `unequiptool`	
+7+ cycles thru like 8 different sub patterns. figure 8s, petal waves, spirals, spike orbits, banded rings etc. past mode 20 everything gets an extra slow wobble on top
 
 ---
 
-9. Stop
-Exit and terminate all commands.
+## misc
 
-		
-Usage	`stop`	
-Aliases	`exit`, `off`, `close`, `quit`, `end`, `kill`, `die`	
-
----
-
-10. Lerp
-Adjust speed of transitions.
-
-		
-Usage	`lerp <number>`	
-Aliases	`smooth`, `smoothness`, `weight`, `transition`, `l`	
-
----
-
-Quick Reference Table
-
-Command	Primary	Shortest Alias	
-Offset	`offset <n>`	`o <n>`	
-Speed	`speed <n>`	`s <n>`	
-Rotation Speed	`rotationspeed <n>`	`r <n>`	
-Mode	`mode <name>`	`m <name>`	
-Target	`target <user>`	`t <user>`	
-Unorbit	`unorbit`	`u`	
-Equip Tool	`equiptool`	`e`	
-Unequip Tool	`unequiptool`	`unet`	
-Stop	`stop`	`off`	
-Lerp	`lerp <n>`	`l <n>`	
-
+- only runs one at a time, rerunning does nothing
+- shuts down on respawn
+- bumps sim radius if ur executor supports it
