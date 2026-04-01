@@ -37,8 +37,7 @@ local removedT = {}
 local notifGui = Instance.new("ScreenGui")
 notifGui.Name = "FlatNotifGui"
 notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-pcall(function() notifGui.Parent = CoreGui end)
-if not notifGui.Parent then notifGui.Parent = plr:WaitForChild("PlayerGui") end
+notifGui.Parent = (gethui and gethui()) or (cloneref and cloneref(game:GetService("CoreGui"))) or game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 
 local notifContainer = Instance.new("Frame", notifGui)
 notifContainer.Size = UDim2.new(0, 260, 1, -20)
@@ -282,8 +281,7 @@ local function createUI()
 
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "FeOrbitUI"
-    pcall(function() screenGui.Parent = CoreGui end)
-    if not screenGui.Parent then screenGui.Parent = plr:WaitForChild("PlayerGui") end
+    screenGui.Parent = (gethui and gethui()) or (cloneref and cloneref(game:GetService("CoreGui"))) or game:GetService("CoreGui") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
     if getgenv then getgenv().OrbitUI = screenGui end
 
     local frame = Instance.new("Frame", screenGui)
